@@ -1,0 +1,26 @@
+# Temporary diagnostic scripts
+fetch_sheets.py
+inspect_data.py
+inspect_raw.py
+extract_tabs.py
+inspect_data_linkage.py
+inspect_spreadsheet.py
+inspect_columns.py
+inspect_columns_output.txt
+inspect_output.txt
+inspect_specifics.py
+print_matching.py
+search_samples.py
+search_xb.py
+search_exact_xb.py
+search_exact_172_xb.py
+compress_data.py
+inspect_row_details.py
+extract_gids.py
+dump_bootstrap.py
+test_export.py
+
+# System & IDE files
+.DS_Store
+.vscode/
+.idea/

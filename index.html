@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tra cứu Địa chỉ - Công an phường Nam Định</title>
+    
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Sticky Top Header -->
+    <header class="police-header">
+        <div class="header-content">
+            <span class="material-symbols-outlined emblem-icon">local_police</span>
+            <h1>Công an phường Nam Định</h1>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="content-container">
+        <!-- Error Notice Banner -->
+        <div class="notice-banner">
+            <span class="material-symbols-outlined notice-icon">info</span>
+            <div class="notice-text">
+                Quá trình sử dụng có lỗi phát sinh vui lòng liên hệ:<br>
+                <strong>Đ/C Tuân CSKV: <a href="tel:0899636838" class="notice-link">0899.636.838</a></strong>
+            </div>
+        </div>
+
+        <!-- Address Cards Container -->
+        <div id="cards-container" class="cards-grid">
+            <!-- Initial Loading Spinner -->
+            <div id="initial-loading" class="spinner-container">
+                <div class="spinner"></div>
+                <p>Đang tải dữ liệu địa chỉ...</p>
+            </div>
+        </div>
+        
+        <!-- Infinite Scroll Trigger Sentinel -->
+        <div id="scroll-sentinel" class="sentinel">
+            <div class="spinner small"></div>
+        </div>
+
+        <!-- Empty Search State -->
+        <div id="empty-state" class="empty-state hidden">
+            <span class="material-symbols-outlined empty-icon">search_off</span>
+            <h3>Không tìm thấy địa chỉ</h3>
+            <p>Vui lòng thử tìm kiếm với từ khóa khác (ví dụ: tên đường, số nhà, hoặc tên gọi).</p>
+        </div>
+    </main>
+
+    <!-- Sticky Bottom Search Bar -->
+    <footer class="search-footer">
+        <div class="search-wrapper">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input type="text" id="search-input" placeholder="Tìm kiếm địa chỉ, tên đường..." autocomplete="off" disabled>
+            <button id="clear-btn" class="clear-btn hidden" aria-label="Xóa tìm kiếm">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+            <div id="search-count" class="search-count hidden">0/0</div>
+        </div>
+    </footer>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Application Script -->
+    <script src="app.js"></script>
+</body>
+</html>
