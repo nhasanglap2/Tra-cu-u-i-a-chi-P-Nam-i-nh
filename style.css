@@ -167,14 +167,17 @@ body {
     position: relative;
     display: flex;
     flex-direction: column;
+    align-items: center;
+    text-align: center;
     gap: 4px;
 }
 
 .card-title-row {
+    width: 100%;
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
+    justify-content: center;
+    align-items: center;
+    position: relative;
 }
 
 .card-title {
@@ -183,9 +186,15 @@ body {
     font-weight: 700;
     line-height: 1.35;
     letter-spacing: 0.2px;
+    padding: 0 45px; /* Prevent text overlap with absolute badge */
+    width: 100%;
 }
 
 .tdp-badge {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
     background: rgba(255, 255, 255, 0.15);
     border: 1.5px solid white;
     border-radius: 8px;
