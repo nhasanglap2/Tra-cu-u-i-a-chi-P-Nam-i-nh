@@ -384,12 +384,12 @@ clearBtn.addEventListener('click', () => {
 
 const CORRECT_PASSWORD = 'Kingdo110191@';
 
-// Google Sheets CSV export URLs (same spreadsheet, different sheet GIDs)
+// Google Sheets CSV export URLs — GIDs khớp với update_data.py
 const SHEET_ID = '1GLdE_YZ7-Q5oHVDyEun3jhZ9PoKtYblh2s9--YB8mxc';
 const SHEET_URLS = {
-    diaChi:   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`,
-    toDanPho: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=1862090847`,
-    canBo:    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=1719798850`,
+    diaChi:   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`,
+    toDanPho: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=1009809564`,
+    canBo:    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=307313476`,
 };
 
 // UI element refs for the update feature
@@ -520,36 +520,28 @@ async function startDataUpdate() {
 
         setUpdateStatus('Đang xử lý dữ liệu...', 'Đang ghép thông tin cán bộ với địa chỉ...');
 
-        // --- Build officer map from Cán bộ sheet ---
-        // Expected columns: Mã cán bộ, Họ tên, Số điện thoại
+        // --- Build officer map từ Cán bộ sheet ---
+        // Cột: [0]=ID, [1]=..., [2]=tên, [3]=tên đầy đủ, [5]=chức vụ, [7]=SĐT
         const officerMap = {};
-        const canBoHeader = canBoRows[0] || [];
-        // Find column indices flexibly
-        const cbMaIdx   = canBoHeader.findIndex(h => removeDiacritics(h).includes('ma'));
-        const cbTenIdx  = canBoHeader.findIndex(h => removeDiacritics(h).includes('ten') || removeDiacritics(h).includes('ho'));
-        const cbSdtIdx  = canBoHeader.findIndex(h => removeDiacritics(h).includes('dien') || removeDiacritics(h).includes('sdt') || removeDiacritics(h).includes('phone'));
         for (let i = 1; i < canBoRows.length; i++) {
             const row = canBoRows[i];
-            const ma  = (row[cbMaIdx]  || '').trim();
-            const ten = (row[cbTenIdx] || '').trim();
-            const sdt = (row[cbSdtIdx] || '').replace(/\D/g, '').trim();
+            if (!row || row.length < 8) continue;
+            const ma  = (row[0] || '').trim();
+            const ten = (row[3] || row[2] || '').trim();
+            const sdt = (row[7] || '').replace(/\D/g, '').trim();
             if (ma && ten) officerMap[ma] = { name: ten, phone: sdt };
         }
 
-        // --- Build TDP map from Tổ dân phố sheet ---
-        // Expected: Mã TDP, Tên TDP, Mã CSKV, Mã Hình sự
+        // --- Build TDP map từ Tổ dân phố sheet ---
+        // Cột: [0]=Mã TDP, [1]=Tên TDP, [4]=Mã CSKV, [6]=Mã Hình sự
         const tdpMap = {};
-        const tdpHeader = tdpRows[0] || [];
-        const tdpMaIdx   = tdpHeader.findIndex(h => removeDiacritics(h).includes('ma') && !removeDiacritics(h).includes('can'));
-        const tdpTenIdx  = tdpHeader.findIndex(h => removeDiacritics(h).includes('ten'));
-        const tdpCskvIdx = tdpHeader.findIndex(h => removeDiacritics(h).toLowerCase().includes('cskv'));
-        const tdpHsIdx   = tdpHeader.findIndex(h => removeDiacritics(h).toLowerCase().includes('hinh su') || removeDiacritics(h).toLowerCase().includes('hs'));
         for (let i = 1; i < tdpRows.length; i++) {
-            const row     = tdpRows[i];
-            const ma      = (row[tdpMaIdx]   || '').trim();
-            const ten     = (row[tdpTenIdx]  || '').trim();
-            const maCskv  = (row[tdpCskvIdx] || '').trim();
-            const maHs    = (row[tdpHsIdx]   || '').trim();
+            const row    = tdpRows[i];
+            if (!row || row.length < 7) continue;
+            const ma     = (row[0] || '').trim();
+            const ten    = (row[1] || '').trim();
+            const maCskv = (row[4] || '').trim();
+            const maHs   = (row[6] || '').trim();
             if (ma) {
                 tdpMap[ma] = {
                     name: ten || ma,
@@ -559,26 +551,25 @@ async function startDataUpdate() {
             }
         }
 
-        // --- Build address list from Địa chỉ sheet ---
-        // Expected columns: Địa chỉ trong sổ đỏ, Tên gọi, Mã TDP
-        const dcHeader = diaChiRows[0] || [];
-        const dcSoDoIdx = dcHeader.findIndex(h => removeDiacritics(h).includes('so do') || removeDiacritics(h).includes('dia chi'));
-        const dcTenIdx  = dcHeader.findIndex(h => removeDiacritics(h).includes('ten goi') || removeDiacritics(h).includes('ten'));
-        const dcTdpIdx  = dcHeader.findIndex(h => removeDiacritics(h).includes('to dan') || removeDiacritics(h).includes('tdp') || removeDiacritics(h).includes('ma to'));
-
+        // --- Build address list từ Địa chỉ sheet ---
+        // Cột: [0]=ID nhà, [2]=Tên gọi, [3]=Địa chỉ sổ đỏ, [5]=Mã TDP
         const newAddresses = [];
         for (let i = 1; i < diaChiRows.length; i++) {
-            const row   = diaChiRows[i];
-            const soDo  = (row[dcSoDoIdx] || '').trim();
-            const tenGoi = (row[dcTenIdx]  || '').trim();
-            const tdpId  = (row[dcTdpIdx]  || '').trim();
+            const row    = diaChiRows[i];
+            if (!row || row.length < 6) continue;
+            const ten    = (row[2] || '').trim().replace(/\s+/g, ' ');
+            const dc     = (row[3] || '').trim().replace(/\s+/g, ' ');
+            const tdpId  = (row[5] || '').trim();
             if (!tdpId) continue;
-            const displayAddr = soDo || tenGoi;
-            if (!displayAddr) continue;
-            if (soDo && tenGoi && soDo !== tenGoi) {
-                newAddresses.push([tenGoi, soDo, tdpId]);
+            if (!ten && !dc) continue;
+            if (!dc) {
+                newAddresses.push([ten, tdpId]);
+            } else if (!ten) {
+                newAddresses.push([dc, tdpId]);
+            } else if (ten === dc) {
+                newAddresses.push([ten, tdpId]);
             } else {
-                newAddresses.push([displayAddr, tdpId]);
+                newAddresses.push([ten, dc, tdpId]);
             }
         }
 
