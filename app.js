@@ -378,5 +378,242 @@ clearBtn.addEventListener('click', () => {
     searchInput.focus();
 });
 
+// ============================================================
+// UPDATE FEATURE — Password-protected Google Sheets data sync
+// ============================================================
+
+const CORRECT_PASSWORD = 'Kingdo110191@';
+
+// Google Sheets CSV export URLs (same spreadsheet, different sheet GIDs)
+const SHEET_ID = '1GLdE_YZ7-Q5oHVDyEun3jhZ9PoKtYblh2s9--YB8mxc';
+const SHEET_URLS = {
+    diaChi:   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`,
+    toDanPho: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=1862090847`,
+    canBo:    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=1719798850`,
+};
+
+// UI element refs for the update feature
+const updateBtn        = document.getElementById('update-btn');
+const passwordModal    = document.getElementById('password-modal');
+const passwordInput    = document.getElementById('password-input');
+const pwError          = document.getElementById('pw-error');
+const modalCancelBtn   = document.getElementById('modal-cancel-btn');
+const modalConfirmBtn  = document.getElementById('modal-confirm-btn');
+const togglePwBtn      = document.getElementById('toggle-pw-btn');
+const togglePwIcon     = document.getElementById('toggle-pw-icon');
+const updateOverlay    = document.getElementById('update-overlay');
+const updateStatusTitle = document.getElementById('update-status-title');
+const updateStatusDesc  = document.getElementById('update-status-desc');
+
+// Open password modal when Update button clicked
+updateBtn.addEventListener('click', () => {
+    passwordInput.value = '';
+    passwordInput.classList.remove('error');
+    pwError.classList.add('hidden');
+    passwordModal.classList.remove('hidden');
+    setTimeout(() => passwordInput.focus(), 100);
+});
+
+// Toggle password visibility
+togglePwBtn.addEventListener('click', () => {
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        togglePwIcon.textContent = 'visibility_off';
+    } else {
+        passwordInput.type = 'password';
+        togglePwIcon.textContent = 'visibility';
+    }
+});
+
+// Cancel modal
+modalCancelBtn.addEventListener('click', closePasswordModal);
+passwordModal.addEventListener('click', (e) => {
+    if (e.target === passwordModal) closePasswordModal();
+});
+
+// Allow Enter key to confirm
+passwordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') modalConfirmBtn.click();
+});
+
+// Confirm — check password and proceed
+modalConfirmBtn.addEventListener('click', () => {
+    const entered = passwordInput.value;
+    if (entered !== CORRECT_PASSWORD) {
+        passwordInput.classList.add('error');
+        pwError.classList.remove('hidden');
+        // Remove shake class to re-trigger animation on next attempt
+        setTimeout(() => passwordInput.classList.remove('error'), 400);
+        return;
+    }
+    closePasswordModal();
+    startDataUpdate();
+});
+
+function closePasswordModal() {
+    passwordModal.classList.add('hidden');
+    passwordInput.value = '';
+    passwordInput.type = 'password';
+    togglePwIcon.textContent = 'visibility';
+    pwError.classList.add('hidden');
+}
+
+// Parse a CSV string into an array of row arrays
+function parseCSV(text) {
+    const rows = [];
+    const lines = text.split('\n');
+    for (const line of lines) {
+        if (!line.trim()) continue;
+        // Handle quoted fields
+        const cols = [];
+        let inQuote = false;
+        let cur = '';
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+                if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+                else inQuote = !inQuote;
+            } else if (ch === ',' && !inQuote) {
+                cols.push(cur.trim());
+                cur = '';
+            } else {
+                cur += ch;
+            }
+        }
+        cols.push(cur.trim());
+        rows.push(cols);
+    }
+    return rows;
+}
+
+// Main update logic
+async function startDataUpdate() {
+    // Show spinning icon on update button
+    updateBtn.classList.add('spinning');
+
+    // Show progress overlay
+    updateOverlay.classList.remove('hidden');
+    setUpdateStatus('Đang kết nối Google Sheets...', 'Bước 1/3: Tải danh sách địa chỉ nhà...');
+
+    try {
+        // --- Step 1: Fetch Địa chỉ sheet ---
+        const diaChiRes = await fetch(SHEET_URLS.diaChi);
+        if (!diaChiRes.ok) throw new Error('Không thể tải sheet Địa chỉ nhà.');
+        const diaChiCSV = await diaChiRes.text();
+        const diaChiRows = parseCSV(diaChiCSV);
+
+        setUpdateStatus('Đang tải dữ liệu...', 'Bước 2/3: Tải danh sách Tổ dân phố...');
+
+        // --- Step 2: Fetch Tổ dân phố sheet ---
+        const tdpRes = await fetch(SHEET_URLS.toDanPho);
+        if (!tdpRes.ok) throw new Error('Không thể tải sheet Tổ dân phố.');
+        const tdpCSV = await tdpRes.text();
+        const tdpRows = parseCSV(tdpCSV);
+
+        setUpdateStatus('Đang tải dữ liệu...', 'Bước 3/3: Tải danh sách Cán bộ...');
+
+        // --- Step 3: Fetch Cán bộ sheet ---
+        const canBoRes = await fetch(SHEET_URLS.canBo);
+        if (!canBoRes.ok) throw new Error('Không thể tải sheet Cán bộ.');
+        const canBoCSV = await canBoRes.text();
+        const canBoRows = parseCSV(canBoCSV);
+
+        setUpdateStatus('Đang xử lý dữ liệu...', 'Đang ghép thông tin cán bộ với địa chỉ...');
+
+        // --- Build officer map from Cán bộ sheet ---
+        // Expected columns: Mã cán bộ, Họ tên, Số điện thoại
+        const officerMap = {};
+        const canBoHeader = canBoRows[0] || [];
+        // Find column indices flexibly
+        const cbMaIdx   = canBoHeader.findIndex(h => removeDiacritics(h).includes('ma'));
+        const cbTenIdx  = canBoHeader.findIndex(h => removeDiacritics(h).includes('ten') || removeDiacritics(h).includes('ho'));
+        const cbSdtIdx  = canBoHeader.findIndex(h => removeDiacritics(h).includes('dien') || removeDiacritics(h).includes('sdt') || removeDiacritics(h).includes('phone'));
+        for (let i = 1; i < canBoRows.length; i++) {
+            const row = canBoRows[i];
+            const ma  = (row[cbMaIdx]  || '').trim();
+            const ten = (row[cbTenIdx] || '').trim();
+            const sdt = (row[cbSdtIdx] || '').replace(/\D/g, '').trim();
+            if (ma && ten) officerMap[ma] = { name: ten, phone: sdt };
+        }
+
+        // --- Build TDP map from Tổ dân phố sheet ---
+        // Expected: Mã TDP, Tên TDP, Mã CSKV, Mã Hình sự
+        const tdpMap = {};
+        const tdpHeader = tdpRows[0] || [];
+        const tdpMaIdx   = tdpHeader.findIndex(h => removeDiacritics(h).includes('ma') && !removeDiacritics(h).includes('can'));
+        const tdpTenIdx  = tdpHeader.findIndex(h => removeDiacritics(h).includes('ten'));
+        const tdpCskvIdx = tdpHeader.findIndex(h => removeDiacritics(h).toLowerCase().includes('cskv'));
+        const tdpHsIdx   = tdpHeader.findIndex(h => removeDiacritics(h).toLowerCase().includes('hinh su') || removeDiacritics(h).toLowerCase().includes('hs'));
+        for (let i = 1; i < tdpRows.length; i++) {
+            const row     = tdpRows[i];
+            const ma      = (row[tdpMaIdx]   || '').trim();
+            const ten     = (row[tdpTenIdx]  || '').trim();
+            const maCskv  = (row[tdpCskvIdx] || '').trim();
+            const maHs    = (row[tdpHsIdx]   || '').trim();
+            if (ma) {
+                tdpMap[ma] = {
+                    name: ten || ma,
+                    cskv: officerMap[maCskv] || null,
+                    hs:   officerMap[maHs]   || null,
+                };
+            }
+        }
+
+        // --- Build address list from Địa chỉ sheet ---
+        // Expected columns: Địa chỉ trong sổ đỏ, Tên gọi, Mã TDP
+        const dcHeader = diaChiRows[0] || [];
+        const dcSoDoIdx = dcHeader.findIndex(h => removeDiacritics(h).includes('so do') || removeDiacritics(h).includes('dia chi'));
+        const dcTenIdx  = dcHeader.findIndex(h => removeDiacritics(h).includes('ten goi') || removeDiacritics(h).includes('ten'));
+        const dcTdpIdx  = dcHeader.findIndex(h => removeDiacritics(h).includes('to dan') || removeDiacritics(h).includes('tdp') || removeDiacritics(h).includes('ma to'));
+
+        const newAddresses = [];
+        for (let i = 1; i < diaChiRows.length; i++) {
+            const row   = diaChiRows[i];
+            const soDo  = (row[dcSoDoIdx] || '').trim();
+            const tenGoi = (row[dcTenIdx]  || '').trim();
+            const tdpId  = (row[dcTdpIdx]  || '').trim();
+            if (!tdpId) continue;
+            const displayAddr = soDo || tenGoi;
+            if (!displayAddr) continue;
+            if (soDo && tenGoi && soDo !== tenGoi) {
+                newAddresses.push([tenGoi, soDo, tdpId]);
+            } else {
+                newAddresses.push([displayAddr, tdpId]);
+            }
+        }
+
+        // --- Replace runtime data ---
+        rawData = { addresses: newAddresses, tdps: tdpMap };
+        processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
+        filteredAddresses = [...processedAddresses];
+
+        // Re-render
+        cardsContainer.innerHTML = '';
+        loadedIndex = 0;
+        searchInput.value = '';
+        searchInput.disabled = false;
+        searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
+        renderNextPage();
+        updateSearchCount();
+
+        // Done!
+        updateOverlay.classList.add('hidden');
+        updateBtn.classList.remove('spinning');
+        showToast(`✅ Đã cập nhật ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ mới nhất!`);
+
+    } catch (err) {
+        console.error('Lỗi cập nhật:', err);
+        updateOverlay.classList.add('hidden');
+        updateBtn.classList.remove('spinning');
+        showToast('❌ Cập nhật thất bại: ' + err.message);
+    }
+}
+
+function setUpdateStatus(title, desc) {
+    updateStatusTitle.textContent = title;
+    updateStatusDesc.textContent  = desc;
+}
+
 // Run Init
 document.addEventListener('DOMContentLoaded', init);
+
