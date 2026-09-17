@@ -9,15 +9,17 @@ let searchTimeout = null;
 
 // DOM Elements
 const cardsContainer = document.getElementById('cards-container');
-const searchInput = document.getElementById('search-input');
-const clearBtn = document.getElementById('clear-btn');
-const searchCount = document.getElementById('search-count');
+const searchInput    = document.getElementById('search-input');
+const clearBtn       = document.getElementById('clear-btn');
+const searchCount    = document.getElementById('search-count');
 const scrollSentinel = document.getElementById('scroll-sentinel');
-const emptyState = document.getElementById('empty-state');
+const emptyState     = document.getElementById('empty-state');
 const initialLoading = document.getElementById('initial-loading');
 const toastContainer = document.getElementById('toast-container');
 
-// Accent removal helper for Vietnamese fuzzy search
+// ─── Helpers ────────────────────────────────────────────────
+
+// Bỏ dấu tiếng Việt để tìm kiếm không dấu
 function removeDiacritics(str) {
     if (!str) return '';
     return str.normalize("NFD")
@@ -28,31 +30,21 @@ function removeDiacritics(str) {
         .trim();
 }
 
-// Convert uppercase/allcaps to title case nicely
 function toTitleCase(str) {
     if (!str) return '';
-    return str.toLowerCase().split(' ').map(word => {
-        return word.charAt(0).toUpperCase() + word.slice(1);
-    }).join(' ');
+    return str.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// Parse address data into structured format for styling
+// Chuyển địa chỉ thành object có đủ trường để hiển thị và tìm kiếm
 function parseAddress(item, tdps) {
-    let ten = '';
-    let dc = '';
-    let tdpId = '';
-    
+    let ten = '', dc = '', tdpId = '';
+
     if (item.length === 2) {
-        ten = item[0];
-        dc = item[0];
-        tdpId = item[1];
+        ten = item[0]; dc = item[0]; tdpId = item[1];
     } else if (item.length === 3) {
-        ten = item[0];
-        dc = item[1];
-        tdpId = item[2];
+        ten = item[0]; dc = item[1]; tdpId = item[2];
     }
-    
-    // Extract parentheses notes
+
     let addressToClean = dc || ten || '';
     let note = '';
     const parenMatch = addressToClean.match(/\(([^)]+)\)/);
@@ -60,158 +52,121 @@ function parseAddress(item, tdps) {
         note = '(' + parenMatch[1].trim() + ')';
         addressToClean = addressToClean.replace(/\([^)]+\)/, '').trim();
     }
-    
+
     const header = addressToClean.toUpperCase();
     const subLines = [];
-    
-    if (note) {
-        subLines.push(note.toUpperCase());
-    }
-    
-    // Lookup TDP info
+    if (note) subLines.push(note.toUpperCase());
+
     const tdpInfo = tdps[tdpId];
     const tdpName = tdpInfo ? tdpInfo.name : tdpId;
-    
-    // If ten is different from dc
+
     const cleanTen = ten.trim();
-    const cleanDc = dc.trim();
+    const cleanDc  = dc.trim();
     if (cleanTen && cleanDc && cleanTen.toLowerCase() !== cleanDc.toLowerCase()) {
         let displayTen = cleanTen;
-        if (displayTen === displayTen.toUpperCase()) {
-            displayTen = toTitleCase(displayTen);
-        }
+        if (displayTen === displayTen.toUpperCase()) displayTen = toTitleCase(displayTen);
         subLines.push(displayTen);
     }
-    
-    // Add TDP Name as fallback or additional info
-    if (subLines.length === 0) {
-        subLines.push(tdpName);
-    } else if (note) {
-        subLines.push(tdpName);
-    }
-    
-    // Build search keywords for accent-insensitive lookup
+
+    if (subLines.length === 0) subLines.push(tdpName);
+    else if (note) subLines.push(tdpName);
+
     const searchTerms = [
         removeDiacritics(ten),
         removeDiacritics(dc),
         removeDiacritics(tdpName),
         tdpId.toLowerCase()
     ].join(' ');
-    
-    return {
-        header,
-        subLines,
-        tdpId,
-        tdpName,
-        tdpInfo,
-        searchTerms
-    };
+
+    return { header, subLines, tdpId, tdpName, tdpInfo, searchTerms };
 }
 
-// Initialize Application
+// ─── Khởi tạo ứng dụng ──────────────────────────────────────
+
 async function init() {
     try {
         const response = await fetch('data.json');
         if (!response.ok) throw new Error('Không thể tải dữ liệu.');
-        
         rawData = await response.json();
-        
-        // Pre-process addresses
+
         processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
-        filteredAddresses = [...processedAddresses];
-        
-        // Remove initial loading spinner
-        if (initialLoading) {
-            initialLoading.remove();
-        }
-        
-        // Enable search input
+        filteredAddresses  = [...processedAddresses];
+
+        if (initialLoading) initialLoading.remove();
         searchInput.disabled = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
-        
-        // Initial render
+
         renderNextPage();
         updateSearchCount();
-        
-        // Setup Infinite Scroll Observer
         setupInfiniteScroll();
-        
+
     } catch (error) {
         console.error('Lỗi khởi tạo:', error);
         cardsContainer.innerHTML = `
             <div class="spinner-container">
-                <span class="material-symbols-outlined" style="font-size: 48px; color: var(--primary-red);">error</span>
-                <p style="margin-top: 10px; font-weight: 600;">Không thể tải dữ liệu địa chỉ.</p>
-                <p style="font-size: 13px; color: var(--text-muted);">Vui lòng kiểm tra lại kết nối hoặc tải lại trang.</p>
+                <span class="material-symbols-outlined" style="font-size:48px;color:var(--primary-red)">error</span>
+                <p style="margin-top:10px;font-weight:600">Không thể tải dữ liệu địa chỉ.</p>
+                <p style="font-size:13px;color:var(--text-muted)">Vui lòng kiểm tra lại kết nối hoặc tải lại trang.</p>
             </div>
         `;
     }
 }
 
-// Setup Infinite Scroll
+// ─── Infinite Scroll ─────────────────────────────────────────
+
 function setupInfiniteScroll() {
     const observer = new IntersectionObserver((entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && loadedIndex < filteredAddresses.length) {
             scrollSentinel.classList.add('loading');
-            // Small timeout to simulate smooth loading transitions
             setTimeout(() => {
                 renderNextPage();
                 scrollSentinel.classList.remove('loading');
             }, 150);
         }
-    }, {
-        rootMargin: '100px'
-    });
-    
+    }, { rootMargin: '100px' });
     observer.observe(scrollSentinel);
 }
 
-// Render next batch of cards
 function renderNextPage() {
     const nextBatch = filteredAddresses.slice(loadedIndex, loadedIndex + PAGE_SIZE);
-    
+
     if (nextBatch.length === 0 && loadedIndex === 0) {
         emptyState.classList.remove('hidden');
         scrollSentinel.classList.add('hidden');
         return;
     }
-    
+
     emptyState.classList.add('hidden');
     scrollSentinel.classList.remove('hidden');
-    
-    // Hide scroll sentinel if we loaded everything
+
     if (loadedIndex + nextBatch.length >= filteredAddresses.length) {
         scrollSentinel.classList.add('hidden');
     }
-    
+
     nextBatch.forEach(addr => {
         const card = createCardElement(addr);
         cardsContainer.appendChild(card);
     });
-    
+
     loadedIndex += nextBatch.length;
 }
 
-// Create single address card HTML element
+// ─── Tạo card địa chỉ ────────────────────────────────────────
+
 function createCardElement(addr) {
     const card = document.createElement('div');
     card.className = 'address-card';
-    
-    // Header section
+
     const sublinesHtml = addr.subLines.map((line, idx) => {
         const className = idx === 0 ? 'card-subtitle' : 'card-subtitle-2';
         return `<div class="${className}">${line}</div>`;
     }).join('');
-    
-    // Officers columns
-    const tdp = addr.tdpInfo;
-    const cskv = tdp ? tdp.cskv : null;
-    const hs = tdp ? tdp.hs : null;
-    
-    const cskvHtml = createOfficerColumn('CSKV', cskv);
-    const hsHtml = createOfficerColumn('Hình sự', hs);
-    
+
+    const tdp   = addr.tdpInfo;
+    const cskv  = tdp ? tdp.cskv : null;
+    const hs    = tdp ? tdp.hs   : null;
+
     card.innerHTML = `
         <div class="card-header">
             <div class="card-title-row">
@@ -221,18 +176,15 @@ function createCardElement(addr) {
             ${sublinesHtml}
         </div>
         <div class="card-body">
-            ${cskvHtml}
-            ${hsHtml}
+            ${createOfficerColumn('CSKV', cskv)}
+            ${createOfficerColumn('Hình sự', hs)}
         </div>
     `;
-    
-    // Add copy event listeners
+
     setupCopyButtonEvents(card);
-    
     return card;
 }
 
-// Helper to create Officer Column HTML
 function createOfficerColumn(roleName, officer) {
     if (!officer || !officer.name) {
         return `
@@ -251,10 +203,8 @@ function createOfficerColumn(roleName, officer) {
             </div>
         `;
     }
-    
-    // Format phone nicely: e.g. 0899636838 -> 0899.636.838
+
     const phoneFormatted = formatPhoneNumber(officer.phone);
-    
     return `
         <div class="card-col ${roleName === 'CSKV' ? 'cskv-col' : 'hs-col'}">
             <span class="col-role">${roleName}</span>
@@ -272,44 +222,36 @@ function createOfficerColumn(roleName, officer) {
     `;
 }
 
-// Format Phone: 0899636838 -> 0899.636.838
 function formatPhoneNumber(phone) {
     if (!phone) return '-';
-    // Remove non-digit
     const cleaned = ('' + phone).replace(/\D/g, '');
     if (cleaned.length === 10) {
-        return `${cleaned.slice(0, 4)}.${cleaned.slice(4, 7)}.${cleaned.slice(7)}`;
+        return `${cleaned.slice(0,4)}.${cleaned.slice(4,7)}.${cleaned.slice(7)}`;
     }
     return phone;
 }
 
-// Setup Copy Buttons logic
 function setupCopyButtonEvents(cardElement) {
-    const copyBtns = cardElement.querySelectorAll('.btn-copy:not([disabled])');
-    copyBtns.forEach(btn => {
+    cardElement.querySelectorAll('.btn-copy:not([disabled])').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.preventDefault();
             const phone = btn.getAttribute('data-phone');
-            if (phone) {
-                navigator.clipboard.writeText(phone).then(() => {
-                    showToast(`Đã sao chép SĐT: ${formatPhoneNumber(phone)}`);
-                }).catch(err => {
-                    console.error('Lỗi copy:', err);
-                    // Fallback copy
-                    const tempInput = document.createElement('input');
-                    tempInput.value = phone;
-                    document.body.appendChild(tempInput);
-                    tempInput.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(tempInput);
-                    showToast(`Đã sao chép SĐT: ${formatPhoneNumber(phone)}`);
-                });
-            }
+            if (!phone) return;
+            navigator.clipboard.writeText(phone).then(() => {
+                showToast(`Đã sao chép SĐT: ${formatPhoneNumber(phone)}`);
+            }).catch(() => {
+                const tmp = document.createElement('input');
+                tmp.value = phone;
+                document.body.appendChild(tmp);
+                tmp.select();
+                document.execCommand('copy');
+                document.body.removeChild(tmp);
+                showToast(`Đã sao chép SĐT: ${formatPhoneNumber(phone)}`);
+            });
         });
     });
 }
 
-// Show animated floating Toast success capsule
 function showToast(message) {
     const toast = document.createElement('div');
     toast.className = 'toast';
@@ -317,43 +259,35 @@ function showToast(message) {
         <span class="material-symbols-outlined toast-success-icon">check_circle</span>
         <span>${message}</span>
     `;
-    
     toastContainer.appendChild(toast);
-    
-    // Animate out and remove
     setTimeout(() => {
         toast.style.animation = 'toastOut 0.25s ease-in forwards';
-        setTimeout(() => {
-            toast.remove();
-        }, 250);
-    }, 2000);
+        setTimeout(() => toast.remove(), 250);
+    }, 2500);
 }
 
-// Handle search action
+// ─── Tìm kiếm ────────────────────────────────────────────────
+
 function handleSearch(query) {
     const cleanedQuery = removeDiacritics(query);
-    
+
     if (!cleanedQuery) {
         filteredAddresses = [...processedAddresses];
         clearBtn.classList.add('hidden');
     } else {
         clearBtn.classList.remove('hidden');
-        // Search queries separated by space must all match (AND query)
         const queryTerms = cleanedQuery.split(/\s+/).filter(t => t.length > 0);
-        
-        filteredAddresses = processedAddresses.filter(addr => {
-            return queryTerms.every(term => addr.searchTerms.includes(term));
-        });
+        filteredAddresses = processedAddresses.filter(addr =>
+            queryTerms.every(term => addr.searchTerms.includes(term))
+        );
     }
-    
-    // Reset view
+
     cardsContainer.innerHTML = '';
     loadedIndex = 0;
     renderNextPage();
     updateSearchCount();
 }
 
-// Update Search Count Badge
 function updateSearchCount() {
     if (!searchInput.value.trim()) {
         searchCount.classList.add('hidden');
@@ -363,13 +297,9 @@ function updateSearchCount() {
     searchCount.textContent = `${filteredAddresses.length.toLocaleString('vi-VN')} kết quả`;
 }
 
-// Listeners
 searchInput.addEventListener('input', (e) => {
-    // Debounce to keep UI responsive
     clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-        handleSearch(e.target.value);
-    }, 200);
+    searchTimeout = setTimeout(() => handleSearch(e.target.value), 200);
 });
 
 clearBtn.addEventListener('click', () => {
@@ -378,34 +308,30 @@ clearBtn.addEventListener('click', () => {
     searchInput.focus();
 });
 
-// ============================================================
-// UPDATE FEATURE — Password-protected Google Sheets data sync
-// ============================================================
+// ─── Nút UPDATE có mật khẩu ──────────────────────────────────
 
 const CORRECT_PASSWORD = 'Kingdo110191@';
 
-// Google Sheets CSV export URLs — GIDs khớp với update_data.py
-const SHEET_ID = '1GLdE_YZ7-Q5oHVDyEun3jhZ9PoKtYblh2s9--YB8mxc';
+const SHEET_ID   = '1GLdE_YZ7-Q5oHVDyEun3jhZ9PoKtYblh2s9--YB8mxc';
 const SHEET_URLS = {
     diaChi:   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`,
     toDanPho: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=1009809564`,
     canBo:    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=307313476`,
 };
 
-// UI element refs for the update feature
-const updateBtn        = document.getElementById('update-btn');
-const passwordModal    = document.getElementById('password-modal');
-const passwordInput    = document.getElementById('password-input');
-const pwError          = document.getElementById('pw-error');
-const modalCancelBtn   = document.getElementById('modal-cancel-btn');
-const modalConfirmBtn  = document.getElementById('modal-confirm-btn');
-const togglePwBtn      = document.getElementById('toggle-pw-btn');
-const togglePwIcon     = document.getElementById('toggle-pw-icon');
-const updateOverlay    = document.getElementById('update-overlay');
+const updateBtn         = document.getElementById('update-btn');
+const passwordModal     = document.getElementById('password-modal');
+const passwordInput     = document.getElementById('password-input');
+const pwError           = document.getElementById('pw-error');
+const modalCancelBtn    = document.getElementById('modal-cancel-btn');
+const modalConfirmBtn   = document.getElementById('modal-confirm-btn');
+const togglePwBtn       = document.getElementById('toggle-pw-btn');
+const togglePwIcon      = document.getElementById('toggle-pw-icon');
+const updateOverlay     = document.getElementById('update-overlay');
 const updateStatusTitle = document.getElementById('update-status-title');
 const updateStatusDesc  = document.getElementById('update-status-desc');
 
-// Open password modal when Update button clicked
+// Mở modal nhập mật khẩu
 updateBtn.addEventListener('click', () => {
     passwordInput.value = '';
     passwordInput.classList.remove('error');
@@ -414,7 +340,7 @@ updateBtn.addEventListener('click', () => {
     setTimeout(() => passwordInput.focus(), 100);
 });
 
-// Toggle password visibility
+// Hiện/ẩn mật khẩu
 togglePwBtn.addEventListener('click', () => {
     if (passwordInput.type === 'password') {
         passwordInput.type = 'text';
@@ -425,24 +351,22 @@ togglePwBtn.addEventListener('click', () => {
     }
 });
 
-// Cancel modal
+// Huỷ modal
 modalCancelBtn.addEventListener('click', closePasswordModal);
 passwordModal.addEventListener('click', (e) => {
     if (e.target === passwordModal) closePasswordModal();
 });
 
-// Allow Enter key to confirm
+// Nhấn Enter để xác nhận
 passwordInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') modalConfirmBtn.click();
 });
 
-// Confirm — check password and proceed
+// Xác nhận mật khẩu
 modalConfirmBtn.addEventListener('click', () => {
-    const entered = passwordInput.value;
-    if (entered !== CORRECT_PASSWORD) {
+    if (passwordInput.value !== CORRECT_PASSWORD) {
         passwordInput.classList.add('error');
         pwError.classList.remove('hidden');
-        // Remove shake class to re-trigger animation on next attempt
         setTimeout(() => passwordInput.classList.remove('error'), 400);
         return;
     }
@@ -453,29 +377,25 @@ modalConfirmBtn.addEventListener('click', () => {
 function closePasswordModal() {
     passwordModal.classList.add('hidden');
     passwordInput.value = '';
-    passwordInput.type = 'password';
+    passwordInput.type  = 'password';
     togglePwIcon.textContent = 'visibility';
     pwError.classList.add('hidden');
 }
 
-// Parse a CSV string into an array of row arrays
+// Parse CSV đơn giản hỗ trợ quoted fields
 function parseCSV(text) {
     const rows = [];
-    const lines = text.split('\n');
-    for (const line of lines) {
+    for (const line of text.split('\n')) {
         if (!line.trim()) continue;
-        // Handle quoted fields
         const cols = [];
-        let inQuote = false;
-        let cur = '';
+        let inQuote = false, cur = '';
         for (let i = 0; i < line.length; i++) {
             const ch = line[i];
             if (ch === '"') {
                 if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
                 else inQuote = !inQuote;
             } else if (ch === ',' && !inQuote) {
-                cols.push(cur.trim());
-                cur = '';
+                cols.push(cur.trim()); cur = '';
             } else {
                 cur += ch;
             }
@@ -486,108 +406,103 @@ function parseCSV(text) {
     return rows;
 }
 
-// Main update logic
-async function startDataUpdate() {
-    // Show spinning icon on update button
-    updateBtn.classList.add('spinning');
+// ─── Hàm cập nhật dữ liệu chính ─────────────────────────────
 
-    // Show progress overlay
+async function startDataUpdate() {
+    // BƯỚC 0: Xoá dữ liệu cũ NGAY LẬP TỨC
+    rawData            = null;
+    processedAddresses = [];
+    filteredAddresses  = [];
+    loadedIndex        = 0;
+    cardsContainer.innerHTML = '';
+    searchInput.value        = '';
+    searchInput.disabled     = true;
+    searchInput.placeholder  = 'Đang cập nhật dữ liệu...';
+    searchCount.classList.add('hidden');
+    emptyState.classList.add('hidden');
+    scrollSentinel.classList.add('hidden');
+
+    // Hiện overlay và nút quay
+    updateBtn.classList.add('spinning');
     updateOverlay.classList.remove('hidden');
-    setUpdateStatus('Đang kết nối Google Sheets...', 'Bước 1/3: Tải danh sách địa chỉ nhà...');
+    setUpdateStatus('⏳ Đang kết nối Google Sheets...', 'Bước 1/3 — Tải danh sách Địa chỉ nhà...');
 
     try {
-        // --- Step 1: Fetch Địa chỉ sheet ---
-        const diaChiRes = await fetch(SHEET_URLS.diaChi);
-        if (!diaChiRes.ok) throw new Error('Không thể tải sheet Địa chỉ nhà.');
-        const diaChiCSV = await diaChiRes.text();
-        const diaChiRows = parseCSV(diaChiCSV);
+        // BƯỚC 1: Sheet Địa chỉ nhà
+        const r1 = await fetch(SHEET_URLS.diaChi);
+        if (!r1.ok) throw new Error(`Không tải được sheet Địa chỉ nhà (HTTP ${r1.status}).`);
+        const diaChiRows = parseCSV(await r1.text());
+        setUpdateStatus('⏳ Đang tải dữ liệu...', 'Bước 2/3 — Tải danh sách Tổ dân phố...');
 
-        setUpdateStatus('Đang tải dữ liệu...', 'Bước 2/3: Tải danh sách Tổ dân phố...');
+        // BƯỚC 2: Sheet Tổ dân phố
+        const r2 = await fetch(SHEET_URLS.toDanPho);
+        if (!r2.ok) throw new Error(`Không tải được sheet Tổ dân phố (HTTP ${r2.status}).`);
+        const tdpRows = parseCSV(await r2.text());
+        setUpdateStatus('⏳ Đang tải dữ liệu...', 'Bước 3/3 — Tải danh sách Cán bộ...');
 
-        // --- Step 2: Fetch Tổ dân phố sheet ---
-        const tdpRes = await fetch(SHEET_URLS.toDanPho);
-        if (!tdpRes.ok) throw new Error('Không thể tải sheet Tổ dân phố.');
-        const tdpCSV = await tdpRes.text();
-        const tdpRows = parseCSV(tdpCSV);
+        // BƯỚC 3: Sheet Cán bộ
+        const r3 = await fetch(SHEET_URLS.canBo);
+        if (!r3.ok) throw new Error(`Không tải được sheet Cán bộ (HTTP ${r3.status}).`);
+        const canBoRows = parseCSV(await r3.text());
+        setUpdateStatus('⚙️ Đang xử lý...', 'Ghép thông tin Cán bộ với Tổ dân phố và Địa chỉ...');
 
-        setUpdateStatus('Đang tải dữ liệu...', 'Bước 3/3: Tải danh sách Cán bộ...');
-
-        // --- Step 3: Fetch Cán bộ sheet ---
-        const canBoRes = await fetch(SHEET_URLS.canBo);
-        if (!canBoRes.ok) throw new Error('Không thể tải sheet Cán bộ.');
-        const canBoCSV = await canBoRes.text();
-        const canBoRows = parseCSV(canBoCSV);
-
-        setUpdateStatus('Đang xử lý dữ liệu...', 'Đang ghép thông tin cán bộ với địa chỉ...');
-
-        // --- Build officer map từ Cán bộ sheet ---
-        // Cột: [0]=ID, [1]=..., [2]=tên, [3]=tên đầy đủ, [5]=chức vụ, [7]=SĐT
+        // Xây officerMap: mã CB → { name, phone }
+        // Cột: [0]=Mã, [2]=Tên ngắn, [3]=Tên đầy đủ, [7]=SĐT
         const officerMap = {};
         for (let i = 1; i < canBoRows.length; i++) {
-            const row = canBoRows[i];
-            if (!row || row.length < 8) continue;
-            const ma  = (row[0] || '').trim();
-            const ten = (row[3] || row[2] || '').trim();
-            const sdt = (row[7] || '').replace(/\D/g, '').trim();
+            const r = canBoRows[i];
+            if (!r || r.length < 8) continue;
+            const ma  = (r[0] || '').trim();
+            const ten = (r[3] || r[2] || '').trim();
+            const sdt = (r[7] || '').replace(/\D/g, '').trim();
             if (ma && ten) officerMap[ma] = { name: ten, phone: sdt };
         }
 
-        // --- Build TDP map từ Tổ dân phố sheet ---
+        // Xây tdpMap: mã TDP → { name, cskv, hs }
         // Cột: [0]=Mã TDP, [1]=Tên TDP, [4]=Mã CSKV, [6]=Mã Hình sự
         const tdpMap = {};
         for (let i = 1; i < tdpRows.length; i++) {
-            const row    = tdpRows[i];
-            if (!row || row.length < 7) continue;
-            const ma     = (row[0] || '').trim();
-            const ten    = (row[1] || '').trim();
-            const maCskv = (row[4] || '').trim();
-            const maHs   = (row[6] || '').trim();
-            if (ma) {
-                tdpMap[ma] = {
-                    name: ten || ma,
-                    cskv: officerMap[maCskv] || null,
-                    hs:   officerMap[maHs]   || null,
-                };
-            }
+            const r = tdpRows[i];
+            if (!r || r.length < 7) continue;
+            const ma = (r[0] || '').trim();
+            if (!ma) continue;
+            tdpMap[ma] = {
+                name: (r[1] || '').trim() || ma,
+                cskv: officerMap[(r[4] || '').trim()] || null,
+                hs:   officerMap[(r[6] || '').trim()] || null,
+            };
         }
 
-        // --- Build address list từ Địa chỉ sheet ---
+        // Xây danh sách địa chỉ
         // Cột: [0]=ID nhà, [2]=Tên gọi, [3]=Địa chỉ sổ đỏ, [5]=Mã TDP
         const newAddresses = [];
         for (let i = 1; i < diaChiRows.length; i++) {
-            const row    = diaChiRows[i];
-            if (!row || row.length < 6) continue;
-            const ten    = (row[2] || '').trim().replace(/\s+/g, ' ');
-            const dc     = (row[3] || '').trim().replace(/\s+/g, ' ');
-            const tdpId  = (row[5] || '').trim();
-            if (!tdpId) continue;
-            if (!ten && !dc) continue;
-            if (!dc) {
-                newAddresses.push([ten, tdpId]);
-            } else if (!ten) {
-                newAddresses.push([dc, tdpId]);
-            } else if (ten === dc) {
-                newAddresses.push([ten, tdpId]);
-            } else {
-                newAddresses.push([ten, dc, tdpId]);
-            }
+            const r     = diaChiRows[i];
+            if (!r || r.length < 6) continue;
+            const ten   = (r[2] || '').trim().replace(/\s+/g, ' ');
+            const dc    = (r[3] || '').trim().replace(/\s+/g, ' ');
+            const tdpId = (r[5] || '').trim();
+            if (!tdpId || (!ten && !dc)) continue;
+            if      (!dc)        newAddresses.push([ten, tdpId]);
+            else if (!ten)       newAddresses.push([dc,  tdpId]);
+            else if (ten === dc) newAddresses.push([ten, tdpId]);
+            else                 newAddresses.push([ten, dc, tdpId]);
         }
 
-        // --- Replace runtime data ---
-        rawData = { addresses: newAddresses, tdps: tdpMap };
-        processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
-        filteredAddresses = [...processedAddresses];
+        setUpdateStatus('✅ Hoàn tất!', `Đã tải ${newAddresses.length.toLocaleString('vi-VN')} địa chỉ. Đang hiển thị...`);
+        await new Promise(resolve => setTimeout(resolve, 400));
 
-        // Re-render
-        cardsContainer.innerHTML = '';
-        loadedIndex = 0;
-        searchInput.value = '';
-        searchInput.disabled = false;
+        // Đổ dữ liệu mới vào ứng dụng
+        rawData            = { addresses: newAddresses, tdps: tdpMap };
+        processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
+        filteredAddresses  = [...processedAddresses];
+
+        searchInput.disabled    = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
         renderNextPage();
         updateSearchCount();
+        setupInfiniteScroll();
 
-        // Done!
         updateOverlay.classList.add('hidden');
         updateBtn.classList.remove('spinning');
         showToast(`✅ Đã cập nhật ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ mới nhất!`);
@@ -596,7 +511,26 @@ async function startDataUpdate() {
         console.error('Lỗi cập nhật:', err);
         updateOverlay.classList.add('hidden');
         updateBtn.classList.remove('spinning');
-        showToast('❌ Cập nhật thất bại: ' + err.message);
+        searchInput.disabled    = false;
+        searchInput.placeholder = 'Tìm kiếm địa chỉ, tên đường...';
+
+        // Nếu lỗi nhưng app đã có data cũ → giữ lại
+        if (processedAddresses.length > 0) {
+            filteredAddresses = [...processedAddresses];
+            cardsContainer.innerHTML = '';
+            loadedIndex = 0;
+            renderNextPage();
+            searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
+        } else {
+            cardsContainer.innerHTML = `
+                <div class="spinner-container">
+                    <span class="material-symbols-outlined" style="font-size:48px;color:var(--primary-red)">error</span>
+                    <p style="margin-top:10px;font-weight:600">Cập nhật thất bại.</p>
+                    <p style="font-size:13px;color:var(--text-muted)">Vui lòng kiểm tra kết nối và thử lại.</p>
+                </div>
+            `;
+        }
+        showToast('❌ Lỗi: ' + err.message);
     }
 }
 
@@ -605,6 +539,5 @@ function setUpdateStatus(title, desc) {
     updateStatusDesc.textContent  = desc;
 }
 
-// Run Init
+// ─── Khởi chạy ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
-
