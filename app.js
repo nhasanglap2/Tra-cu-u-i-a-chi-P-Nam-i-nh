@@ -83,35 +83,33 @@ function parseAddress(item, tdps) {
 
 // ─── Khởi tạo ứng dụng ──────────────────────────────────────
 
-const LS_KEY      = 'namdinh_data_v1';
-const LS_TIME_KEY = 'namdinh_data_time';
-
 async function init() {
     try {
         let loadedData = null;
         let source = '';
 
-        // Ưu tiên đọc từ localStorage nếu có (dữ liệu đã update thủ công)
-        const cached = localStorage.getItem(LS_KEY);
-        if (cached) {
-            try {
-                loadedData = JSON.parse(cached);
-                const savedTime = localStorage.getItem(LS_TIME_KEY);
-                source = savedTime
-                    ? `Cập nhật lần cuối: ${new Date(+savedTime).toLocaleString('vi-VN')}`
-                    : 'Dữ liệu đã cập nhật thủ công';
-            } catch (e) {
-                localStorage.removeItem(LS_KEY);
-                localStorage.removeItem(LS_TIME_KEY);
+        // Bước 1: Luôn ưu tiên lấy dữ liệu mới nhất từ Cloudflare KV
+        try {
+            const kvRes = await fetch('/api/data');
+            if (kvRes.ok) {
+                loadedData = await kvRes.json();
+                const updatedAt = loadedData._updated_at
+                    ? new Date(loadedData._updated_at).toLocaleString('vi-VN')
+                    : null;
+                source = updatedAt
+                    ? `Dữ liệu Cloudflare — Cập nhật lần cuối: ${updatedAt}`
+                    : 'Dữ liệu Cloudflare KV';
             }
+        } catch (e) {
+            console.warn('Không lấy được dữ liệu từ Cloudflare KV, chuyển sang data.json...', e);
         }
 
-        // Nếu không có localStorage thì đọc data.json gốc
-        if (!loadedData) {
+        // Bước 2: Fallback về data.json nếu KV chưa có dữ liệu
+        if (!loadedData || !loadedData.addresses) {
             const response = await fetch('data.json');
             if (!response.ok) throw new Error('Không thể tải dữ liệu.');
             loadedData = await response.json();
-            source = 'Dữ liệu mặc định (data.json)';
+            source = 'Dữ liệu mặc định';
         }
 
         rawData = loadedData;
@@ -121,8 +119,6 @@ async function init() {
         if (initialLoading) initialLoading.remove();
         searchInput.disabled = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
-
-        // Hiển thị nguồn dữ liệu trên tooltip nút update
         updateBtn.title = source;
 
         renderNextPage();
@@ -518,32 +514,43 @@ async function startDataUpdate() {
             else                 newAddresses.push([ten, dc, tdpId]);
         }
 
-        setUpdateStatus('✅ Hoàn tất!', `Đã tải ${newAddresses.length.toLocaleString('vi-VN')} địa chỉ. Đang hiển thị...`);
-        await new Promise(resolve => setTimeout(resolve, 400));
+        setUpdateStatus('✅ Hoàn tất!', `Đã xử lý ${newAddresses.length.toLocaleString('vi-VN')} địa chỉ. Đang lưu lên Cloudflare...`);
 
         // Đổ dữ liệu mới vào ứng dụng
-        rawData            = { addresses: newAddresses, tdps: tdpMap };
+        const newData = { addresses: newAddresses, tdps: tdpMap, _updated_at: Date.now() };
+
+        // Lưu lên Cloudflare KV qua API
+        setUpdateStatus('☁️ Đang lưu lên Cloudflare...', 'Ghi dữ liệu mới vào KV Storage để mọi thiết bị đều nhận được...');
+        const saveRes = await fetch('/api/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Update-Secret': CORRECT_PASSWORD,
+            },
+            body: JSON.stringify(newData),
+        });
+
+        if (!saveRes.ok) {
+            const errBody = await saveRes.json().catch(() => ({}));
+            throw new Error('Lưu Cloudflare thất bại: ' + (errBody.error || saveRes.status));
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        rawData            = newData;
         processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
         filteredAddresses  = [...processedAddresses];
 
-        // Lưu vào localStorage để F5 vẫn giữ dữ liệu mới
-        try {
-            localStorage.setItem(LS_KEY, JSON.stringify(rawData));
-            localStorage.setItem(LS_TIME_KEY, Date.now().toString());
-        } catch (e) {
-            console.warn('Không lưu được vào localStorage:', e);
-        }
-
         searchInput.disabled    = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
-        updateBtn.title = `Cập nhật lần cuối: ${new Date().toLocaleString('vi-VN')}`;
+        updateBtn.title = `Dữ liệu Cloudflare — Cập nhật lần cuối: ${new Date().toLocaleString('vi-VN')}`;
         renderNextPage();
         updateSearchCount();
         setupInfiniteScroll();
 
         updateOverlay.classList.add('hidden');
         updateBtn.classList.remove('spinning');
-        showToast(`✅ Đã cập nhật ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ mới nhất!`);
+        showToast(`✅ Đã lưu ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ lên Cloudflare!`);
 
     } catch (err) {
         console.error('Lỗi cập nhật:', err);
