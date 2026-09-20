@@ -83,18 +83,47 @@ function parseAddress(item, tdps) {
 
 // ─── Khởi tạo ứng dụng ──────────────────────────────────────
 
+const LS_KEY      = 'namdinh_data_v1';
+const LS_TIME_KEY = 'namdinh_data_time';
+
 async function init() {
     try {
-        const response = await fetch('data.json');
-        if (!response.ok) throw new Error('Không thể tải dữ liệu.');
-        rawData = await response.json();
+        let loadedData = null;
+        let source = '';
 
+        // Ưu tiên đọc từ localStorage nếu có (dữ liệu đã update thủ công)
+        const cached = localStorage.getItem(LS_KEY);
+        if (cached) {
+            try {
+                loadedData = JSON.parse(cached);
+                const savedTime = localStorage.getItem(LS_TIME_KEY);
+                source = savedTime
+                    ? `Cập nhật lần cuối: ${new Date(+savedTime).toLocaleString('vi-VN')}`
+                    : 'Dữ liệu đã cập nhật thủ công';
+            } catch (e) {
+                localStorage.removeItem(LS_KEY);
+                localStorage.removeItem(LS_TIME_KEY);
+            }
+        }
+
+        // Nếu không có localStorage thì đọc data.json gốc
+        if (!loadedData) {
+            const response = await fetch('data.json');
+            if (!response.ok) throw new Error('Không thể tải dữ liệu.');
+            loadedData = await response.json();
+            source = 'Dữ liệu mặc định (data.json)';
+        }
+
+        rawData = loadedData;
         processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
         filteredAddresses  = [...processedAddresses];
 
         if (initialLoading) initialLoading.remove();
         searchInput.disabled = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
+
+        // Hiển thị nguồn dữ liệu trên tooltip nút update
+        updateBtn.title = source;
 
         renderNextPage();
         updateSearchCount();
@@ -497,8 +526,17 @@ async function startDataUpdate() {
         processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
         filteredAddresses  = [...processedAddresses];
 
+        // Lưu vào localStorage để F5 vẫn giữ dữ liệu mới
+        try {
+            localStorage.setItem(LS_KEY, JSON.stringify(rawData));
+            localStorage.setItem(LS_TIME_KEY, Date.now().toString());
+        } catch (e) {
+            console.warn('Không lưu được vào localStorage:', e);
+        }
+
         searchInput.disabled    = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
+        updateBtn.title = `Cập nhật lần cuối: ${new Date().toLocaleString('vi-VN')}`;
         renderNextPage();
         updateSearchCount();
         setupInfiniteScroll();
