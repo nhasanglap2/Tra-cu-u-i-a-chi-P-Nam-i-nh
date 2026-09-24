@@ -85,41 +85,16 @@ function parseAddress(item, tdps) {
 
 async function init() {
     try {
-        let loadedData = null;
-        let source = '';
+        const response = await fetch('data.json');
+        if (!response.ok) throw new Error('Không thể tải dữ liệu.');
+        rawData = await response.json();
 
-        // Bước 1: Luôn ưu tiên lấy dữ liệu mới nhất từ Cloudflare KV
-        try {
-            const kvRes = await fetch('/api/data');
-            if (kvRes.ok) {
-                loadedData = await kvRes.json();
-                const updatedAt = loadedData._updated_at
-                    ? new Date(loadedData._updated_at).toLocaleString('vi-VN')
-                    : null;
-                source = updatedAt
-                    ? `Dữ liệu Cloudflare — Cập nhật lần cuối: ${updatedAt}`
-                    : 'Dữ liệu Cloudflare KV';
-            }
-        } catch (e) {
-            console.warn('Không lấy được dữ liệu từ Cloudflare KV, chuyển sang data.json...', e);
-        }
-
-        // Bước 2: Fallback về data.json nếu KV chưa có dữ liệu
-        if (!loadedData || !loadedData.addresses) {
-            const response = await fetch('data.json');
-            if (!response.ok) throw new Error('Không thể tải dữ liệu.');
-            loadedData = await response.json();
-            source = 'Dữ liệu mặc định';
-        }
-
-        rawData = loadedData;
         processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
         filteredAddresses  = [...processedAddresses];
 
         if (initialLoading) initialLoading.remove();
         searchInput.disabled = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
-        updateBtn.title = source;
 
         renderNextPage();
         updateSearchCount();
@@ -514,17 +489,16 @@ async function startDataUpdate() {
             else                 newAddresses.push([ten, dc, tdpId]);
         }
 
-        setUpdateStatus('✅ Hoàn tất!', `Đã xử lý ${newAddresses.length.toLocaleString('vi-VN')} địa chỉ. Đang lưu lên Cloudflare...`);
+        setUpdateStatus('✅ Xử lý xong!', `Đã chuẩn bị ${newAddresses.length.toLocaleString('vi-VN')} địa chỉ. Đang tải lên server...`);
 
-        // Đổ dữ liệu mới vào ứng dụng
-        const newData = { addresses: newAddresses, tdps: tdpMap, _updated_at: Date.now() };
+        // Gửi dữ liệu mới lên Cloudflare Function → Function sẽ ghi data.json lên GitHub
+        const newData  = { addresses: newAddresses, tdps: tdpMap };
+        setUpdateStatus('☁️ Đang ghi lên server...', 'Công an phường đang ghi data.json mới lên GitHub. Vui lòng chờ...');
 
-        // Lưu lên Cloudflare KV qua API
-        setUpdateStatus('☁️ Đang lưu lên Cloudflare...', 'Ghi dữ liệu mới vào KV Storage để mọi thiết bị đều nhận được...');
         const saveRes = await fetch('/api/update', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type':    'application/json',
                 'X-Update-Secret': CORRECT_PASSWORD,
             },
             body: JSON.stringify(newData),
@@ -532,25 +506,28 @@ async function startDataUpdate() {
 
         if (!saveRes.ok) {
             const errBody = await saveRes.json().catch(() => ({}));
-            throw new Error('Lưu Cloudflare thất bại: ' + (errBody.error || saveRes.status));
+            throw new Error('Ghi server thất bại: ' + (errBody.error || saveRes.status));
         }
 
-        await new Promise(resolve => setTimeout(resolve, 300));
+        const saveResult = await saveRes.json();
 
+        // Hiện dữ liệu mới người dùng hiện tại ngay lập tức
         rawData            = newData;
         processedAddresses = rawData.addresses.map(item => parseAddress(item, rawData.tdps));
         filteredAddresses  = [...processedAddresses];
 
         searchInput.disabled    = false;
         searchInput.placeholder = `Tìm kiếm trong ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ...`;
-        updateBtn.title = `Dữ liệu Cloudflare — Cập nhật lần cuối: ${new Date().toLocaleString('vi-VN')}`;
         renderNextPage();
         updateSearchCount();
         setupInfiniteScroll();
 
         updateOverlay.classList.add('hidden');
         updateBtn.classList.remove('spinning');
-        showToast(`✅ Đã lưu ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ lên Cloudflare!`);
+
+        // Thông báo rõ ràng: server sẽ rebuild trong 1-2 phút
+        showToast(`✅ Đã ghi ${processedAddresses.length.toLocaleString('vi-VN')} địa chỉ lên server! Trang sẽ tự cập nhật sau ~1-2 phút.`);
+
 
     } catch (err) {
         console.error('Lỗi cập nhật:', err);
